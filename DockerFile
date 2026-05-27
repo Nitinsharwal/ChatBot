@@ -1,0 +1,18 @@
+#base image
+FROM python:3.12
+
+#workdir
+WORKDIR /chatbot
+
+# copy
+COPY . /chatbot
+
+# run
+RUN pip install -r requiremnts.txt
+
+# port
+EXPOSE 8507
+
+#COMMAND
+
+CMD ["python","./chatBot.py"]
