@@ -10,6 +10,10 @@ from pathlib import Path
 
 load_dotenv()
 HF_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN")
+try:
+    HF_TOKEN = HF_TOKEN or st.secrets.get("HUGGINGFACEHUB_API_TOKEN")
+except (FileNotFoundError, KeyError):
+    pass
 
 DATA_DIR = Path(__file__).parent / "data"
 SESSIONS_DIR = DATA_DIR / "sessions"

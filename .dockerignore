@@ -1,0 +1,12 @@
+.git
+.gitignore
+.env
+.venv
+chat_venv
+__pycache__
+*.pyc
+*.pyo
+.DS_Store
+data
+*.md
+.streamlit/secrets.toml
