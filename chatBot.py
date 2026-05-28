@@ -224,7 +224,7 @@ with st.sidebar:
             st.success("Profile saved.")
 
     with st.expander("⚙️ Model & generation", expanded=False):
-        model_label = st.selectbox("Model", list(MODELS.keys()), index=1)
+        model_label = st.selectbox("Model", list(MODELS.keys()), index=list(MODELS).index("Llama 3.1 8B Instruct"))
         temperature = st.slider("Temperature", 0.0, 1.5, 0.7, 0.05)
         max_tokens = st.slider("Max new tokens", 64, 2048, 512, 64)
 
