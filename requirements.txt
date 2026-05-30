@@ -4,7 +4,7 @@ langchain-text-splitters==0.3.11
 huggingface_hub==0.36.2
 python-dotenv==1.2.1
 pandas==2.3.3
-psycopg[binary]==3.2.3
+psycopg[binary]==3.2.13
 pgvector==0.3.6
 fastapi==0.118.0
 uvicorn[standard]==0.32.1
