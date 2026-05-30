@@ -1,5 +1,14 @@
-{# Hotel ChatBot Widget — drop this {% include "chatbot-widget.html" %} just before </body> in base.html. #}
-{# Configure the two values below for your environment. #}
+{# Hotel ChatBot Widget — include just before </body> in base.html: {% include "chatbot-widget.html" %} #}
+{# Configure API_URL + API_KEY in the script block below. #}
+
+{% if request.user.is_authenticated %}
+<script>
+  window.HB_USER = {
+    email: "{{ request.user.email|default:''|escapejs }}",
+    name:  "{{ request.user.get_full_name|default:request.user.username|escapejs }}"
+  };
+</script>
+{% endif %}
 
 <style>
   #hb-chat-toggle {
@@ -30,17 +39,27 @@
 
   #hb-chat-meta {
     padding: 8px 12px; background: #f6f5ff; border-bottom: 1px solid #eee;
-    display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+    font-size: 12px; color: #555;
   }
   #hb-chat-meta input {
     border: 1px solid #ddd; border-radius: 6px; padding: 6px 8px; font-size: 12px; width: 100%;
   }
+  #hb-signed-in { display: none; align-items: center; gap: 6px; }
+  #hb-signed-in .hb-dot { width: 8px; height: 8px; background: #1bb56b; border-radius: 50%; }
+  #hb-ref-toggle {
+    background: none; border: none; color: #5b3df5; cursor: pointer; padding: 0;
+    font-size: 12px; text-decoration: underline; margin-left: 8px;
+  }
+  #hb-ref-row { display: none; margin-top: 6px; }
+  #hb-anon-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 
   #hb-chat-messages { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
   .hb-msg { max-width: 85%; padding: 10px 12px; border-radius: 12px; font-size: 14px; line-height: 1.45; }
   .hb-msg.user { align-self: flex-end; background: #7c5cff; color: #fff; border-bottom-right-radius: 4px; }
   .hb-msg.bot { align-self: flex-start; background: #f1f1f4; color: #111; border-bottom-left-radius: 4px; white-space: pre-wrap; }
   .hb-msg.bot.handoff { background: #fff4e5; border: 1px solid #ffd49a; }
+  .hb-msg.bot a { color: #5b3df5; font-weight: 600; text-decoration: underline; }
+  .hb-msg.bot strong { color: #111; }
   .hb-sources { font-size: 12px; color: #555; margin-top: 6px; }
   .hb-sources details { margin-top: 4px; }
   .hb-sources summary { cursor: pointer; color: #5b3df5; }
@@ -70,8 +89,18 @@
   </div>
 
   <div id="hb-chat-meta">
-    <input id="hb-ref" placeholder="Booking ref (optional)" autocomplete="off">
-    <input id="hb-email" placeholder="Email (optional)" autocomplete="email">
+    <div id="hb-signed-in">
+      <span class="hb-dot"></span>
+      <span>Signed in as <strong id="hb-user-name"></strong></span>
+      <button id="hb-ref-toggle" type="button">+ Add booking reference</button>
+    </div>
+    <div id="hb-ref-row">
+      <input id="hb-ref" placeholder="Booking reference (e.g. HTL-1001)" autocomplete="off">
+    </div>
+    <div id="hb-anon-row">
+      <input id="hb-ref-anon" placeholder="Booking ref (optional)" autocomplete="off">
+      <input id="hb-email-anon" placeholder="Email (optional)" autocomplete="email">
+    </div>
   </div>
 
   <div id="hb-chat-messages"></div>
@@ -85,8 +114,8 @@
 <script>
 (function () {
   // ▼▼▼ CONFIGURE THESE TWO ▼▼▼
-  const API_URL = "https://YOUR-CHATBOT-API.onrender.com/api/chat";
-  const API_KEY = "pick-a-long-random-string-here";
+  const API_URL = "https://hotelchatapi.onrender.com/api/chat";
+  const API_KEY = "PUT-YOUR-CHATBOT-API-KEY-HERE";
   // ▲▲▲
 
   const $ = (id) => document.getElementById(id);
@@ -96,8 +125,40 @@
   const messages = $("hb-chat-messages");
   const question = $("hb-question");
   const send = $("hb-send");
+
+  const signedInRow = $("hb-signed-in");
+  const userNameEl = $("hb-user-name");
+  const refToggle = $("hb-ref-toggle");
+  const refRow = $("hb-ref-row");
   const refField = $("hb-ref");
-  const emailField = $("hb-email");
+  const anonRow = $("hb-anon-row");
+  const refFieldAnon = $("hb-ref-anon");
+  const emailFieldAnon = $("hb-email-anon");
+
+  const user = window.HB_USER || null;
+  const isAuthed = !!(user && user.email);
+
+  if (isAuthed) {
+    signedInRow.style.display = "flex";
+    userNameEl.textContent = user.name || user.email;
+    anonRow.style.display = "none";
+    refToggle.addEventListener("click", () => {
+      const open = refRow.style.display === "block";
+      refRow.style.display = open ? "none" : "block";
+      refToggle.textContent = open ? "+ Add booking reference" : "− Hide booking reference";
+      if (!open) refField.focus();
+    });
+  }
+
+  function currentBookingInfo() {
+    if (isAuthed) {
+      return { ref: refField.value.trim() || null, email: user.email };
+    }
+    return {
+      ref: refFieldAnon.value.trim() || null,
+      email: emailFieldAnon.value.trim() || null,
+    };
+  }
 
   const sessionId = (() => {
     let s = localStorage.getItem("hb_session");
@@ -108,10 +169,31 @@
     return s;
   })();
 
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) =>
+      ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])
+    );
+  }
+
+  function renderMarkdown(text) {
+    let html = escapeHtml(text);
+    html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+      '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    html = html.replace(/(^|[^"=])(https?:\/\/[^\s<]+)/g,
+      '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
+    html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+    html = html.replace(/\n/g, "<br>");
+    return html;
+  }
+
   function addBubble(text, who, sources = [], handoff = false) {
     const div = document.createElement("div");
     div.className = "hb-msg " + who + (handoff ? " handoff" : "");
-    div.textContent = text;
+    if (who === "bot") {
+      div.innerHTML = renderMarkdown(text);
+    } else {
+      div.textContent = text;
+    }
     if (sources && sources.length) {
       const wrap = document.createElement("div");
       wrap.className = "hb-sources";
@@ -129,12 +211,6 @@
     messages.scrollTop = messages.scrollHeight;
   }
 
-  function escapeHtml(s) {
-    return String(s).replace(/[&<>"']/g, (c) =>
-      ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])
-    );
-  }
-
   function setTyping(on) {
     let el = $("hb-typing");
     if (on && !el) {
@@ -149,19 +225,33 @@
     }
   }
 
+  const BOOKING_INTENT = /\b(my booking|booking|reserv|reservation|refund|check[- ]?in|check[- ]?out|cancel|payment|invoice|receipt|stay|room)\b/i;
+
   async function ask(text) {
     addBubble(text, "user");
     question.value = "";
     send.disabled = true;
     setTyping(true);
+
+    const info = currentBookingInfo();
+
+    // For logged-in users: nudge them to add booking ref the first time they ask
+    // a booking-related question without one.
+    if (isAuthed && !info.ref && BOOKING_INTENT.test(text) && !sessionStorage.getItem("hb_refprompted")) {
+      sessionStorage.setItem("hb_refprompted", "1");
+      refRow.style.display = "block";
+      refToggle.textContent = "− Hide booking reference";
+      refField.focus();
+    }
+
     try {
       const r = await fetch(API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-API-Key": API_KEY },
         body: JSON.stringify({
           question: text,
-          booking_ref: refField.value.trim() || null,
-          booking_email: emailField.value.trim() || null,
+          booking_ref: info.ref,
+          booking_email: info.email,
           session_id: sessionId,
         }),
       });
@@ -184,7 +274,10 @@
   toggle.addEventListener("click", () => {
     panel.classList.toggle("open");
     if (panel.classList.contains("open") && messages.children.length === 0) {
-      addBubble("Hi! How can I help with your booking today?", "bot");
+      const greeting = isAuthed
+        ? "Hi " + (user.name ? user.name.split(" ")[0] : "there") + "! How can I help with your booking today?"
+        : "Hi! How can I help with your booking today?";
+      addBubble(greeting, "bot");
     }
     if (panel.classList.contains("open")) question.focus();
   });

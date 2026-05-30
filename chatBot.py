@@ -8,6 +8,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
+from rag.answer import HANDOFF_MESSAGE, RAG_PROMPT
 from rag.retrieve import (
     Chunk,
     format_booking,
@@ -63,30 +64,6 @@ Your job is to give the user the most accurate, useful, and well-reasoned answer
 - Never claim internet/file access unless a tool is actually available.
 
 Goal: every response should feel like it came from a sharp, senior expert who respects the user's time."""
-
-
-RAG_PROMPT = """You are the official support assistant for our hotel booking platform.
-Your job is to answer guest questions about bookings, policies, payments, rooms, and account issues.
-
-# Hard rules
-- Answer ONLY using the information in the "Hotel knowledge base" and "Guest booking" sections below.
-- Do NOT use outside knowledge. Do NOT invent prices, dates, policies, or contact details.
-- Cite the supporting snippets inline as [1], [2], etc., matching the numbered sources.
-- If the answer is not in the context, reply exactly:
-  "I don't have that information in our knowledge base. Let me connect you with a human agent — please email support@hotel.example or call +1-800-HOTEL-00."
-- If the guest asks about their own booking and a "Guest booking" section is present, use it to personalize the answer (status, dates, amount, hotel). If not present, ask them for their booking reference and email.
-
-# Style
-- Be warm, concise, and professional. Use short paragraphs and bullet lists.
-- Confirm what the guest asked, then give the answer, then any next step they need to take.
-"""
-
-
-HANDOFF_MESSAGE = (
-    "I don't have that information in our knowledge base. "
-    "Let me connect you with a human agent — please email "
-    "**support@hotel.example** or call **+1-800-HOTEL-00**."
-)
 
 
 def load_profile() -> dict:

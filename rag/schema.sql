@@ -30,3 +30,19 @@ CREATE TABLE IF NOT EXISTS support_gaps (
     session_id   TEXT,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS conversations (
+    id            BIGSERIAL PRIMARY KEY,
+    session_id    TEXT NOT NULL,
+    question      TEXT NOT NULL,
+    answer        TEXT NOT NULL,
+    sources       JSONB NOT NULL DEFAULT '[]'::jsonb,
+    handoff       BOOLEAN NOT NULL DEFAULT FALSE,
+    booking_ref   TEXT,
+    booking_email TEXT,
+    booking_found BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS conversations_session_idx ON conversations (session_id);
+CREATE INDEX IF NOT EXISTS conversations_created_idx ON conversations (created_at DESC);
