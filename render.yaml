@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: hotel-chatbot-api
+    runtime: python
+    plan: free
+    region: singapore
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn api:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: HUGGINGFACEHUB_API_TOKEN
+        sync: false
+      - key: RAG_DATABASE_URL
+        sync: false
+      - key: HOTEL_DATABASE_URL
+        sync: false
+      - key: CHATBOT_API_KEY
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: EMBEDDING_MODEL
+        value: sentence-transformers/all-MiniLM-L6-v2
+      - key: LLM_MODEL
+        value: meta-llama/Meta-Llama-3.1-8B-Instruct
