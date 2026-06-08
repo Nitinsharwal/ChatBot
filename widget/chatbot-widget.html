@@ -81,9 +81,12 @@
 
 <div id="hb-chat-panel" role="dialog" aria-label="Hotel support chat">
   <div id="hb-chat-header">
-    <div>
-      Hotel Support
-      <small>Ask about bookings, policies, payments</small>
+    <div style="display:flex;align-items:center;gap:10px">
+      <div style="width:36px;height:36px;border-radius:50%;background:#fff;color:#5b3df5;font-weight:700;display:flex;align-items:center;justify-content:center;font-size:16px">K</div>
+      <div>
+        Kelly · Hotel Concierge
+        <small>Bookings, policies, recommendations</small>
+      </div>
     </div>
     <button id="hb-close" aria-label="Close">×</button>
   </div>
@@ -169,6 +172,9 @@
     return s;
   })();
 
+  const history = [];   // [{role, content}, …] — last N turns sent to API for context
+  const MAX_HISTORY = 12;
+
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, (c) =>
       ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])
@@ -227,8 +233,14 @@
 
   const BOOKING_INTENT = /\b(my booking|booking|reserv|reservation|refund|check[- ]?in|check[- ]?out|cancel|payment|invoice|receipt|stay|room)\b/i;
 
+  function pushHistory(role, content) {
+    history.push({ role, content });
+    if (history.length > MAX_HISTORY) history.splice(0, history.length - MAX_HISTORY);
+  }
+
   async function ask(text) {
     addBubble(text, "user");
+    pushHistory("user", text);
     question.value = "";
     send.disabled = true;
     setTyping(true);
@@ -253,6 +265,7 @@
           booking_ref: info.ref,
           booking_email: info.email,
           session_id: sessionId,
+          history: history.slice(0, -1),  // omit the current turn
         }),
       });
       setTyping(false);
@@ -262,6 +275,7 @@
       }
       const data = await r.json();
       addBubble(data.answer, "bot", data.sources || [], !!data.handoff);
+      pushHistory("assistant", data.answer);
     } catch (e) {
       setTyping(false);
       addBubble("Network error. Please try again.", "bot", [], true);
@@ -274,10 +288,12 @@
   toggle.addEventListener("click", () => {
     panel.classList.toggle("open");
     if (panel.classList.contains("open") && messages.children.length === 0) {
-      const greeting = isAuthed
-        ? "Hi " + (user.name ? user.name.split(" ")[0] : "there") + "! How can I help with your booking today?"
-        : "Hi! How can I help with your booking today?";
+      const firstName = isAuthed && user.name ? user.name.split(" ")[0] : null;
+      const greeting = firstName
+        ? `Hi ${firstName}! I'm **Kelly**, your hotel concierge. Ask me about bookings, cancellations, payments, or which hotel suits you best. How can I help today?`
+        : "Hi! I'm **Kelly**, your hotel concierge. Ask me about bookings, cancellations, payments, or which hotel suits you best. How can I help today?";
       addBubble(greeting, "bot");
+      pushHistory("assistant", greeting);
     }
     if (panel.classList.contains("open")) question.focus();
   });

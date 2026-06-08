@@ -46,12 +46,18 @@ def rate_limit(request: Request) -> None:
     _RATE_BUCKET[ip] = bucket
 
 
+class HistoryTurn(BaseModel):
+    role: str = Field(..., pattern="^(user|assistant)$")
+    content: str = Field(..., max_length=4000)
+
+
 class ChatRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=2000)
     booking_ref: Optional[str] = Field(default=None, max_length=64)
     booking_email: Optional[str] = Field(default=None, max_length=255)
     session_id: Optional[str] = Field(default=None, max_length=64)
-    k: int = Field(default=4, ge=1, le=8)
+    history: Optional[list[HistoryTurn]] = Field(default=None, max_length=20)
+    k: int = Field(default=5, ge=1, le=8)
 
 
 @app.get("/health")
@@ -67,6 +73,7 @@ def chat(req: ChatRequest) -> dict:
             booking_ref=req.booking_ref,
             booking_email=req.booking_email,
             session_id=req.session_id,
+            history=[t.model_dump() for t in (req.history or [])],
             k=req.k,
         )
         return answer_to_dict(result)

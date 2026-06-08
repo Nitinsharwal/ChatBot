@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
 
 import json
+import re
 
 from rag.db import rag_conn
 from rag.retrieve import (
@@ -64,9 +65,12 @@ DEFAULT_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "512"))
 SUPPORT_PHONE = os.getenv("SUPPORT_PHONE", "8221985564")
 SUPPORT_EMAIL = os.getenv("SUPPORT_EMAIL", "nomapvtltd@gmail.com")
 LOGIN_URL = os.getenv("LOGIN_URL", "https://sharwal-nitin-hotel.vercel.app/accounts/login/")
+BOT_NAME = os.getenv("BOT_NAME", "Kelly")
+HISTORY_TURNS = int(os.getenv("HISTORY_TURNS", "6"))
+BOOKING_REF_RE = re.compile(r"\b(HTL[-\s]?\d{3,8})\b", re.IGNORECASE)
 
 HANDOFF_MESSAGE = (
-    f"I don't have that information in our knowledge base — but you can reach us directly:\n\n"
+    f"I don't have that in our knowledge base yet — but you can reach our team directly:\n\n"
     f"📞 **Phone:** {SUPPORT_PHONE}\n"
     f"📧 **Email:** {SUPPORT_EMAIL}\n\n"
     f"For anything booking-specific, please sign in to your account:\n"
@@ -77,22 +81,39 @@ HANDOFF_MESSAGE = (
     f"3. Open **My Bookings** to view and manage your reservations."
 )
 
-RAG_PROMPT = f"""You are the official support assistant for our hotel booking platform.
-Your job is to answer guest questions about bookings, policies, payments, rooms, and account issues.
+RAG_PROMPT = f"""You are **{BOT_NAME}**, the dedicated AI concierge for our hotel booking platform.
+You help guests with bookings, cancellations, payments, room/amenity questions, account help, and recommending hotels.
 
-# Hard rules
-- Answer ONLY using the information in the "Hotel knowledge base" and "Guest booking" sections below.
-- Do NOT use outside knowledge. Do NOT invent prices, dates, policies, or contact details.
-- Cite the supporting snippets inline as [1], [2], etc., matching the numbered sources.
-- If the answer is not in the context, reply EXACTLY with this message (no edits, no additions):
+# Identity
+- Always speak as {BOT_NAME} — warm, professional, and crisp.
+- Never reveal that you're an LLM, what model you are, or how you were built. If asked, say "I'm {BOT_NAME}, your hotel concierge."
+- Use the guest's name if it's in the booking context. Don't recite their profile back.
+
+# Hard rules (grounding)
+- Answer ONLY using the "Hotel knowledge base" and "Guest booking" sections below, plus the recent conversation.
+- Do NOT invent hotels, cities, prices, dates, policies, or contact details. If a fact isn't in the context, say so honestly.
+- Cite supporting snippets inline as [1], [2], etc., matching the numbered sources.
+- If the question is about a *city* and no hotel in the knowledge base is in that city, say clearly which cities we DO operate in, and offer those.
+
+# Booking-specific behavior
+- If a "Guest booking" section is present, use it to personalize the answer (status, dates, hotel, amount).
+- If the guest asks about *their* booking but no "Guest booking" section is present, ask once for their booking reference (format: HTL-XXXX). Don't re-ask if they ignore it.
+
+# Conversation
+- Use the recent chat history to resolve references ("the cheaper one", "that hotel", "what about the suite?").
+- For follow-ups, modify your previous answer instead of repeating it.
+- Match the guest's language. If they write in Hindi, reply in Hindi.
+
+# Style
+- Concise by default. One short paragraph or 3–5 bullets, not an essay.
+- Use Markdown: **bold** for emphasis, bullet lists for options, no headings inside a chat reply.
+- End with a clear next step ("Would you like me to confirm?", "Want me to find dates?").
+
+# When you genuinely can't answer
+If after using all context you still cannot answer factually, reply EXACTLY with this — no edits, no additions:
 ---
 {HANDOFF_MESSAGE}
 ---
-- If the guest asks about their own booking and a "Guest booking" section is present, use it to personalize the answer.
-
-# Style
-- Be warm, concise, and professional. Use short paragraphs and bullet lists.
-- Confirm what the guest asked, then give the answer, then any next step they need to take.
 """
 
 
@@ -140,12 +161,45 @@ def _format_context(chunks: list[Chunk], booking_text: Optional[str]) -> str:
     return "\n\n".join(parts)
 
 
+def _extract_booking_ref(text: str) -> Optional[str]:
+    m = BOOKING_REF_RE.search(text or "")
+    if not m:
+        return None
+    return m.group(1).upper().replace(" ", "-")
+
+
+def _format_history(history: Optional[list[dict]]) -> str:
+    if not history:
+        return ""
+    trimmed = history[-(HISTORY_TURNS * 2):]
+    lines = []
+    for m in trimmed:
+        role = "Guest" if m.get("role") == "user" else BOT_NAME
+        content = (m.get("content") or "").strip()
+        if content:
+            lines.append(f"{role}: {content}")
+    return "\n".join(lines)
+
+
+def _retrieval_query(question: str, history: Optional[list[dict]]) -> str:
+    """Join the last user turn with the new question so vague follow-ups
+    ('what about the other one?') still retrieve relevant chunks."""
+    if not history:
+        return question
+    prev_user = next(
+        (m["content"] for m in reversed(history) if m.get("role") == "user"),
+        "",
+    )
+    return f"{prev_user} {question}".strip() if prev_user else question
+
+
 def answer_question(
     question: str,
     booking_ref: Optional[str] = None,
     booking_email: Optional[str] = None,
     session_id: Optional[str] = None,
-    k: int = 4,
+    history: Optional[list[dict]] = None,
+    k: int = 5,
     model: str = DEFAULT_MODEL,
     temperature: float = DEFAULT_TEMPERATURE,
     max_tokens: int = DEFAULT_MAX_TOKENS,
@@ -154,7 +208,11 @@ def answer_question(
     if not question:
         return Answer(answer="Please ask a question.", sources=[], handoff=False, booking_found=False)
 
-    chunks = retrieve(question, k=k)
+    if not booking_ref:
+        booking_ref = _extract_booking_ref(question)
+
+    retrieval_q = _retrieval_query(question, history)
+    chunks = retrieve(retrieval_q, k=k)
 
     booking_text: Optional[str] = None
     booking_found = False
@@ -175,7 +233,12 @@ def answer_question(
         return result
 
     context = _format_context(chunks, booking_text)
-    prompt = f"{RAG_PROMPT}\n\n{context}\n\n# Guest question\n{question}"
+    history_block = _format_history(history)
+    parts = [RAG_PROMPT, context]
+    if history_block:
+        parts.append("# Recent conversation\n" + history_block)
+    parts.append(f"# Current guest question\n{question}")
+    prompt = "\n\n".join(p for p in parts if p)
 
     chat = _get_model(model, temperature, max_tokens)
     chat_result = chat.invoke([{"role": "user", "content": prompt}])
