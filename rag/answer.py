@@ -58,9 +58,12 @@ def _log_conversation(
 
 load_dotenv()
 
-DEFAULT_MODEL = os.getenv("LLM_MODEL", "meta-llama/Meta-Llama-3.1-8B-Instruct")
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini" if os.getenv("GOOGLE_API_KEY") else "huggingface").lower()
+DEFAULT_MODEL = os.getenv("LLM_MODEL", os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+                          if LLM_PROVIDER == "gemini"
+                          else "meta-llama/Meta-Llama-3.1-8B-Instruct")
 DEFAULT_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.3"))
-DEFAULT_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "512"))
+DEFAULT_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "1024"))
 
 SUPPORT_PHONE = os.getenv("SUPPORT_PHONE", "8221985564")
 SUPPORT_EMAIL = os.getenv("SUPPORT_EMAIL", "nomapvtltd@gmail.com")
@@ -136,7 +139,18 @@ class Answer:
 
 
 @lru_cache(maxsize=4)
-def _get_model(repo_id: str, temperature: float, max_tokens: int) -> ChatHuggingFace:
+def _get_model(repo_id: str, temperature: float, max_tokens: int):
+    if LLM_PROVIDER == "gemini":
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        key = os.getenv("GOOGLE_API_KEY")
+        if not key:
+            raise RuntimeError("GOOGLE_API_KEY is not set (LLM_PROVIDER=gemini)")
+        return ChatGoogleGenerativeAI(
+            model=repo_id,
+            google_api_key=key,
+            temperature=temperature,
+            max_output_tokens=max_tokens,
+        )
     token = os.getenv("HUGGINGFACEHUB_API_TOKEN")
     if not token:
         raise RuntimeError("HUGGINGFACEHUB_API_TOKEN is not set")
