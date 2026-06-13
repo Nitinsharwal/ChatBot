@@ -60,7 +60,7 @@ class ChatRequest(BaseModel):
     k: int = Field(default=5, ge=1, le=8)
 
 
-@app.get("/health")
+@app.get("/")
 def health() -> dict:
     return {"status": "ok"}
 
